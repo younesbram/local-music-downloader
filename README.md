@@ -8,6 +8,8 @@ python app.py
 ```
 Step 3.
 Enter urls seperated by newline (enter)
+
+\
 Step 4.
 Script will download all playlist/link content from Soundcloud, Spotify, and Youtube Music.
 
