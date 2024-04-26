@@ -16,4 +16,4 @@ Script will download all playlist/link content from Soundcloud, Spotify, and You
 This is for research purposes only - Younes Brahimi \
 By the way, https://chromewebstore.google.com/detail/soundcloud-likes-to-playl/nkndddcbofchmjogahmikkapkaoglkoh to turn your soundcloud likes into a playlist.
 
-\n P.S Youtube premium cookies.txt will allow you to download it with 256 higher quality
+P.S Youtube premium cookies.txt will allow you to download it with 256 higher quality
