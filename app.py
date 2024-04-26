@@ -1,26 +1,38 @@
-
-from flask import Flask, render_template, request, jsonify
+import os
 import subprocess
-import shlex
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 
-app = Flask(__name__)
+def download_url(url):
+    if "spotify.com" in url:
+        # Download from Spotify
+        command = ["spotdl", url]
+    else:
+        # Download from YouTube/SoundCloud
+        command = ["yt-dlp", "-f", "bestaudio", "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0", url]
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+    result = subprocess.run(command, stdout=subprocess.PIPE, text=True, stderr=subprocess.PIPE)
+    return {'url': url, 'status': 'success' if result.returncode == 0 else 'failed', 'output': result.stdout.strip(), 'error': result.stderr.strip()}
 
-@app.route('/download', methods=['POST'])
-def download():
-    urls = request.json['urls']
-    responses = []
-    for url in urls:
-        if "spotify.com" in url:
-            command = f"spotdl {shlex.quote(url)}"
-        else:
-            command = f"yt-dlp -f bestaudio --extract-audio --audio-format mp3 --audio-quality 0 {shlex.quote(url)}"
-        process = subprocess.run(command, shell=True, text=True, capture_output=True)
-        responses.append({'url': url, 'status': 'success' if process.returncode == 0 else 'failed', 'output': process.stdout})
-    return jsonify(responses)
+def main():
+    urls = []
+    print("Enter the URLs (press enter on empty line to finish):")
+    while True:
+        url = input()
+        if not url:
+            break
+        urls.append(url)
 
-if __name__ == '__main__':
-    app.run(debug=True)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(download_url, url) for url in urls]
+        for future in tqdm(as_completed(futures), total=len(urls), desc="Downloading", unit="file"):
+            result = future.result()
+            if result['status'] == 'success':
+                print(f"\nDownloaded: {result['url']}")
+            else:
+                print(f"Failed to download {result['url']}: {result['error']}")
+
+    print("All downloads are complete. \nThis code is for research purposes only -Younes Brahimi.")
+
+if __name__ == "__main__":
+    main()
