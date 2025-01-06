@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Downloader</title>
+    <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+    <script type="text/babel">
+        function App() {
+            const [urls, setUrls] = React.useState('');
+            const [downloads, setDownloads] = React.useState([]);
+            const [stats, setStats] = React.useState(null);
+            const [config, setConfig] = React.useState(null);
+            const [error, setError] = React.useState(null);
+            const [isProcessing, setIsProcessing] = React.useState(false);
+            const [showDirInput, setShowDirInput] = React.useState(false);
+            const [newDir, setNewDir] = React.useState('');
+
+            React.useEffect(() => {
+                const interval = setInterval(() => {
+                    fetchStatus();
+                    fetchStats();
+                }, 1000);
+                fetchConfig();
+                return () => clearInterval(interval);
+            }, []);
+
+            const fetchStatus = async () => {
+                try {
+                    const response = await fetch('/api/status');
+                    const data = await response.json();
+                    const downloadsList = Object.entries(data).map(([url, status]) => ({
+                        url,
+                        ...status
+                    }));
+                    setDownloads(downloadsList);
+                } catch (err) {
+                    console.error('Error fetching status:', err);
+                }
+            };
+
+            const fetchStats = async () => {
+                try {
+                    const response = await fetch('/api/stats');
+                    const data = await response.json();
+                    setStats(data);
+                } catch (err) {
+                    console.error('Error fetching stats:', err);
+                }
+            };
+
+            const fetchConfig = async () => {
+                try {
+                    const response = await fetch('/api/config');
+                    const data = await response.json();
+                    setConfig(data);
+                } catch (err) {
+                    console.error('Error fetching config:', err);
+                }
+            };
+
+            const openFolder = async () => {
+                try {
+                    await fetch('/api/open_folder', { method: 'POST' });
+                } catch (err) {
+                    console.error('Error opening folder:', err);
+                }
+            };
+
+            const updateDownloadDir = async () => {
+                if (!newDir) return;
+                try {
+                    const response = await fetch('/api/config/download_dir', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: newDir })
+                    });
+
+                    if (response.ok) {
+                        setShowDirInput(false);
+                        setNewDir('');
+                        fetchConfig();
+                    }
+                } catch (err) {
+                    console.error('Error updating download directory:', err);
+                }
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError(null);
+                setIsProcessing(true);
+
+                try {
+                    const urlList = urls.split('\n')
+                        .map(url => url.trim())
+                        .filter(Boolean);
+
+                    const response = await fetch('/api/download', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ urls: urlList }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to start download');
+                    }
+                    setUrls('');
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setIsProcessing(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen py-12 px-4">
+                    <div className="max-w-4xl mx-auto">
+                        <div className="flex justify-between items-center mb-8">
+                            <h1 className="text-3xl font-bold">Music Downloader</h1>
+                            {config && (
+                                <div className="flex items-center gap-4">
+                                    <button
+                                        onClick={openFolder}
+                                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center gap-2"
+                                    >
+                                        📂 Open Downloads
+                                    </button>
+                                    <button
+                                        onClick={() => setShowDirInput(!showDirInput)}
+                                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg"
+                                    >
+                                        Change Location
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {showDirInput && config && (
+                            <div className="mb-4 p-4 bg-white rounded-lg shadow">
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={newDir}
+                                        onChange={(e) => setNewDir(e.target.value)}
+                                        placeholder="Enter new download directory path"
+                                        className="flex-1 p-2 border rounded"
+                                    />
+                                    <button
+                                        onClick={updateDownloadDir}
+                                        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                                    >
+                                        Save
+                                    </button>
+                                </div>
+                                <p className="text-sm text-gray-500 mt-2">
+                                    Current: {config && config.download_dir}
+                                </p>
+                            </div>
+                        )}
+
+                        {stats && (
+                            <div className="mb-8 p-6 bg-white rounded-lg shadow">
+                                <h2 className="text-xl font-semibold mb-4">Download Stats</h2>
+                                <div className="grid grid-cols-2 gap-4 mb-6">
+                                    <div>
+                                        <p className="text-gray-600">Total Files</p>
+                                        <p className="text-2xl font-bold">{stats.total_files}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-gray-600">Total Size</p>
+                                        <p className="text-2xl font-bold">{Math.round(stats.total_size_mb)} MB</p>
+                                    </div>
+                                </div>
+                                
+                                {stats.recent_files && stats.recent_files.length > 0 && (
+                                    <div>
+                                        <h3 className="font-semibold mb-2">Recent Downloads</h3>
+                                        <div className="space-y-2">
+                                            {stats.recent_files.map((file, index) => (
+                                                <div key={index} className="flex items-center justify-between text-sm bg-gray-50 p-2 rounded">
+                                                    <span className="truncate flex-1">{file.name}</span>
+                                                    <div className="flex items-center gap-4">
+                                                        <span className="text-gray-600">{file.size_mb} MB</span>
+                                                        <span className="text-gray-600">{file.date}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <textarea
+                                className="w-full h-32 p-3 border rounded-lg"
+                                value={urls}
+                                onChange={(e) => setUrls(e.target.value)}
+                                placeholder="Enter URLs (one per line)&#10;Supports: YouTube, Spotify, SoundCloud"
+                                disabled={isProcessing}
+                            />
+
+                            <button
+                                type="submit"
+                                disabled={isProcessing || !urls.trim()}
+                                className="w-full py-2 px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400"
+                            >
+                                {isProcessing ? 'Processing...' : 'Start Download'}
+                            </button>
+                        </form>
+
+                        {error && (
+                            <div className="mt-4 p-4 bg-red-50 text-red-500 rounded-lg">
+                                {error}
+                            </div>
+                        )}
+
+                        {downloads && downloads.length > 0 && (
+                            <div className="mt-8 space-y-4">
+                                <h2 className="text-xl font-semibold">Active Downloads</h2>
+                                {downloads.map((download, index) => (
+                                    <div key={index} className="border rounded-lg p-4">
+                                        <div className="flex justify-between mb-2">
+                                            <span className="font-medium truncate">{download.url}</span>
+                                            <span>{download.progress}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded-full h-2">
+                                            <div
+                                                className={"h-2 rounded-full transition-all duration-300 " + 
+                                                    (download.status === 'failed' ? 'bg-red-500' : 
+                                                    download.status === 'completed' ? 'bg-green-500' : 
+                                                    'bg-blue-500')
+                                                }
+                                                style={{width: download.progress + '%'}}
+                                            />
+                                        </div>
+                                        {download.error && (
+                                            <p className="text-red-500 mt-2 text-sm">{download.error}</p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
