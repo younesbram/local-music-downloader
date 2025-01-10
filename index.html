@@ -21,6 +21,8 @@
             const [error, setError] = React.useState(null);
             const [isProcessing, setIsProcessing] = React.useState(false);
             const [showPasswordInput, setShowPasswordInput] = React.useState(false);
+            const [isCounting, setIsCounting] = React.useState(false);
+            const [totalSongs, setTotalSongs] = React.useState(0);
 
             React.useEffect(() => {
                 const interval = setInterval(() => {
@@ -75,9 +77,28 @@
                         .map(url => url.trim())
                         .filter(Boolean);
 
-                    if (urlList.length > 5 && !password) {
+                    if (urlList.length === 0) {
+                        throw new Error('Please enter at least one URL');
+                    }
+
+                    setIsCounting(true);
+                    const checkResponse = await fetch('/api/check-urls', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ urls: urlList }),
+                    });
+                    
+                    if (!checkResponse.ok) {
+                        throw new Error('Failed to check URLs');
+                    }
+                    
+                    const checkData = await checkResponse.json();
+                    setTotalSongs(checkData.total_songs);
+                    
+                    if (checkData.needs_password && !password) {
                         setShowPasswordInput(true);
                         setIsProcessing(false);
+                        setIsCounting(false);
                         return;
                     }
 
@@ -98,10 +119,12 @@
                     setUrls('');
                     setPassword('');
                     setShowPasswordInput(false);
+                    setTotalSongs(0);
                 } catch (err) {
                     setError(err.message);
                 } finally {
                     setIsProcessing(false);
+                    setIsCounting(false);
                 }
             };
 
@@ -158,21 +181,27 @@
                                 className="w-full h-32 p-3 border rounded-lg"
                                 value={urls}
                                 onChange={(e) => setUrls(e.target.value)}
-                                placeholder="Enter URLs (one per line)&#10;Supports: YouTube, Spotify, SoundCloud&#10;Note: Password required for more than 5 downloads"
-                                disabled={isProcessing}
+                                placeholder="Enter URLs (one per line)&#10;Supports: YouTube, Spotify, SoundCloud&#10;Note: Password required for more than 5 songs"
+                                disabled={isProcessing || isCounting}
                             />
+
+                            {totalSongs > 0 && (
+                                <div className="text-sm text-gray-600">
+                                    Total songs to download: {totalSongs}
+                                </div>
+                            )}
 
                             {showPasswordInput && (
                                 <div className="space-y-2">
                                     <p className="text-sm text-gray-600">
-                                        Password required for more than 5 downloads.
+                                        Password required for more than 5 songs.
                                         <a 
                                             href="https://x.com/didntdrinkwater" 
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="ml-1 text-blue-500 hover:text-blue-600"
                                         >
-                                            DM me for the password
+                                            DM me for the password X.com/didntdrinkwater
                                         </a>
                                     </p>
                                     <input
@@ -187,10 +216,10 @@
 
                             <button
                                 type="submit"
-                                disabled={isProcessing || !urls.trim()}
+                                disabled={isProcessing || isCounting || !urls.trim()}
                                 className="w-full py-2 px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400"
                             >
-                                {isProcessing ? 'Processing...' : 'Start Download'}
+                                {isCounting ? 'Counting songs...' : isProcessing ? 'Processing...' : 'Start Download'}
                             </button>
                         </form>
 

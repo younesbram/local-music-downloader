@@ -44,6 +44,33 @@ def verify_password(password: str) -> bool:
     test_hash = hashlib.sha256(password.encode()).hexdigest()
     return hmac.compare_digest(test_hash, config["password_hash"])
 
+async def count_songs_in_url(url: str) -> int:
+    try:
+        if "spotify.com" in url:
+            process = await asyncio.create_subprocess_exec(
+                "spotdl", url, "--list",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+        else:
+            process = await asyncio.create_subprocess_exec(
+                "yt-dlp", "--flat-playlist", "--dump-json", url,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+        stdout, _ = await process.communicate()
+        output = stdout.decode()
+        
+        if "spotify.com" in url:
+            return len([line for line in output.split('\n') if line.startswith('https://')])
+        else:
+            return len([line for line in output.split('\n') if line.strip()])
+            
+    except Exception as e:
+        logging.error(f"Error counting songs: {str(e)}")
+        return 1
+
 def get_download_stats():
     download_dir = Path(config["download_dir"])
     files = list(download_dir.glob("*.mp3"))
@@ -116,6 +143,7 @@ async def download_url(url: str) -> None:
                     try:
                         progress = float(line.split("%")[0].strip().split()[-1])
                         downloads[url]["progress"] = progress
+                        logging.debug(f"Progress: {progress}%")
                     except:
                         pass
                 elif "Downloading" in line:
@@ -151,6 +179,28 @@ async def get_html():
     with open('index.html', 'r') as f:
         return HTMLResponse(content=f.read())
 
+@app.post("/api/check-urls")
+async def check_urls(request: Request):
+    try:
+        data = await request.json()
+        urls = data.get("urls", [])
+        
+        if not urls:
+            raise HTTPException(status_code=400, detail="No URLs provided")
+        
+        total_songs = 0
+        for url in urls:
+            song_count = await count_songs_in_url(url)
+            total_songs += song_count
+            
+        return {
+            "total_songs": total_songs,
+            "needs_password": total_songs > config["max_free_downloads"]
+        }
+    except Exception as e:
+        logging.error(f"Error checking URLs: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/download")
 async def start_download(request: Request):
     try:
@@ -161,11 +211,16 @@ async def start_download(request: Request):
         if not urls:
             raise HTTPException(status_code=400, detail="No URLs provided")
             
-        if len(urls) > config["max_free_downloads"]:
+        total_songs = 0
+        for url in urls:
+            song_count = await count_songs_in_url(url)
+            total_songs += song_count
+            
+        if total_songs > config["max_free_downloads"]:
             if not verify_password(password):
                 raise HTTPException(
                     status_code=403,
-                    detail="Password required for more than 5 downloads. DM me on Twitter @didntdrinkwater for the password!"
+                    detail="Password required for more than 5 songs. DM me on Twitter @didntdrinkwater for the password!"
                 )
         
         logging.info(f"Starting downloads for URLs: {urls}")
@@ -193,26 +248,23 @@ async def get_stats():
         logging.error(f"Error getting stats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/config/download_dir")
-async def set_download_dir(request: Request):
-    try:
-        data = await request.json()
-        new_dir = data.get("path")
-        if not new_dir:
-            raise HTTPException(status_code=400, detail="Invalid path")
-            
-        config["download_dir"] = new_dir
-        Path(new_dir).mkdir(parents=True, exist_ok=True)
-        logging.info(f"Download directory updated to: {new_dir}")
-        return {"message": "Download directory updated"}
-    except Exception as e:
-        logging.error(f"Error updating download directory: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/api/config")
 async def get_config():
     return config
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
+    print(f"""
+╔════════════════════════════════════════╗
+║     High Quality Music Downloader      ║
+║----------------------------------------║
+║ Server running at:                     ║
+║ http://localhost:{port}                  ║
+║                                        ║
+║ Downloads will be saved to:            ║
+║ {config["download_dir"]}
+║                                        ║
+║ Press Ctrl+C to quit                   ║
+╚════════════════════════════════════════╝
+""")
     uvicorn.run(app, host="0.0.0.0", port=port)
