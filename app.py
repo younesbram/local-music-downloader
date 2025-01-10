@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import asyncio
@@ -8,9 +8,11 @@ import os
 import hashlib
 import hmac
 import logging
+import json
+import shutil
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, Set
 
 app = FastAPI()
 app.add_middleware(
@@ -30,10 +32,46 @@ logging.basicConfig(
     ]
 )
 
+class StatsManager:
+    def __init__(self, stats_file="/app/data/global_stats.json"):
+        self.stats_file = stats_file
+        Path(stats_file).parent.mkdir(parents=True, exist_ok=True)
+        self.ensure_file_exists()
+        
+    def ensure_file_exists(self):
+        try:
+            with open(self.stats_file, 'r') as f:
+                json.load(f)
+        except:
+            self.save_stats({
+                "total_downloads": 0,
+                "total_songs": 0,
+                "unique_visitors": []
+            })
+    
+    def load_stats(self):
+        with open(self.stats_file, 'r') as f:
+            return json.load(f)
+    
+    def save_stats(self, stats):
+        with open(self.stats_file, 'w') as f:
+            json.dump(stats, f)
+    
+    def update_stats(self, new_downloads=0, new_songs=0, visitor_ip=None):
+        stats = self.load_stats()
+        stats["total_downloads"] += new_downloads
+        stats["total_songs"] += new_songs
+        if visitor_ip and visitor_ip not in stats["unique_visitors"]:
+            stats["unique_visitors"].append(visitor_ip)
+        self.save_stats(stats)
+        return stats
+
 downloads: Dict[str, Dict] = {}
 download_counts: Dict[str, int] = {}
+stats_manager = StatsManager()
+
 config = {
-    "download_dir": str(Path.home() / "Downloads" / "MusicDownloader"),
+    "download_dir": "/app/downloads",
     "password_hash": hashlib.sha256(os.getenv("APP_PASSWORD", "default").encode()).hexdigest(),
     "max_free_downloads": 5
 }
@@ -78,37 +116,23 @@ async def count_songs_in_url(url: str) -> int:
         download_counts[url] = 1
         return 1
 
-def get_download_stats():
+def get_download_stats(request: Request):
+    stats = stats_manager.load_stats()
     download_dir = Path(config["download_dir"])
     files = list(download_dir.glob("*.mp3"))
     
-    total_size = sum(f.stat().st_size for f in files)
-    
-    # Calculate download speed and remaining time
     active_downloads = [d for d in downloads.values() if d["status"] == "downloading"]
-    total_progress = sum(d.get("progress", 0) for d in active_downloads)
-    avg_speed = sum(d.get("speed", 0) for d in active_downloads)
     
-    stats = {
+    return {
         "total_files": len(files),
-        "total_size_mb": round(total_size / (1024 * 1024), 2),
+        "total_size_mb": round(sum(f.stat().st_size for f in files if f.stat().st_size > 0) / (1024 * 1024), 2),
         "active_downloads": len(active_downloads),
-        "average_speed_mbps": round(avg_speed / (1024 * 1024), 2) if avg_speed else 0,
-        "recent_files": []
+        "global_downloads": stats["total_downloads"],
+        "unique_users": len(stats["unique_visitors"]),
+        "download_ready": any(d["status"] == "completed" for d in downloads.values())
     }
-    
-    recent_files = sorted(files, key=lambda x: x.stat().st_mtime, reverse=True)[:10]
-    for file in recent_files:
-        fstat = file.stat()
-        stats["recent_files"].append({
-            "name": file.name,
-            "size_mb": round(fstat.st_size / (1024 * 1024), 2),
-            "date": datetime.fromtimestamp(fstat.st_mtime).strftime("%Y-%m-%d %H:%M")
-        })
-    
-    return stats
 
-async def download_url(url: str) -> None:
+async def download_url(url: str, download_id: str) -> None:
     try:
         if not url or not isinstance(url, str):
             raise ValueError("Invalid URL")
@@ -116,14 +140,14 @@ async def download_url(url: str) -> None:
         url = url.strip()
         logging.info(f"Starting download for: {url}")
         
-        total_songs = download_counts.get(url, 1)
-        current_song = 0
+        download_path = Path(config["download_dir"]) / download_id
+        download_path.mkdir(parents=True, exist_ok=True)
         
         if "spotify.com" in url:
             command = [
                 "spotdl",
                 url,
-                "--output", config["download_dir"],
+                "--output", str(download_path),
                 "--format", "mp3",
                 "--bitrate", "320k",
                 "--threads", "4",
@@ -139,15 +163,15 @@ async def download_url(url: str) -> None:
                 "--embed-thumbnail",
                 "--add-metadata",
                 "--prefer-ffmpeg",
-                "-o", f"{config['download_dir']}/%(title)s.%(ext)s",
+                "-o", f"{str(download_path)}/%(title)s.%(ext)s",
             ]
 
         logging.debug(f"Running command: {' '.join(command)}")
         downloads[url] = {
             "status": "downloading",
             "progress": 0,
-            "speed": 0,
-            "total_songs": total_songs,
+            "download_id": download_id,
+            "total_songs": download_counts.get(url, 1),
             "completed_songs": 0
         }
         
@@ -166,60 +190,41 @@ async def download_url(url: str) -> None:
                 line = line.decode().strip()
                 if "[download]" in line and "%" in line:
                     try:
-                        parts = line.split()
-                        for i, part in enumerate(parts):
-                            if "%" in part:
-                                progress = float(part.rstrip("%"))
-                                if i + 1 < len(parts) and "EiB/s" in parts[i+1]:
-                                    speed = float(parts[i+1].split("EiB/s")[0])
-                                    downloads[url]["speed"] = speed
-                                
-                                # Calculate overall progress based on current song and total songs
-                                overall_progress = (current_song * 100 + progress) / total_songs
-                                downloads[url]["progress"] = overall_progress
-                                break
+                        progress = float(line.split("%")[0].strip().split()[-1])
+                        downloads[url]["progress"] = progress
                     except:
                         pass
-                elif "Downloading" in line or "[download] Destination" in line:
-                    current_song += 1
-                    downloads[url]["completed_songs"] = current_song
+                elif "[download] Destination" in line or "Downloading" in line:
+                    downloads[url]["completed_songs"] += 1
             except:
                 continue
 
         await process.wait()
         
         if process.returncode == 0:
-            downloads[url] = {
+            downloads[url].update({
                 "status": "completed",
                 "progress": 100,
-                "speed": 0,
-                "total_songs": total_songs,
-                "completed_songs": total_songs
-            }
+                "completed_songs": download_counts.get(url, 1)
+            })
             logging.info(f"Successfully downloaded: {url}")
         else:
             error = await process.stderr.read()
             error_text = error.decode().strip() if error else "Download failed"
-            downloads[url] = {
+            downloads[url].update({
                 "status": "failed",
                 "error": error_text,
-                "progress": 0,
-                "speed": 0,
-                "total_songs": total_songs,
-                "completed_songs": current_song
-            }
+                "progress": 0
+            })
             logging.error(f"Failed to download {url}: {error_text}")
 
     except Exception as e:
         logging.error(f"Error downloading {url}: {str(e)}")
-        downloads[url] = {
+        downloads[url].update({
             "status": "failed",
             "error": str(e),
-            "progress": 0,
-            "speed": 0,
-            "total_songs": 1,
-            "completed_songs": 0
-        }
+            "progress": 0
+        })
 
 @app.get("/", response_class=HTMLResponse)
 async def get_html():
@@ -271,7 +276,6 @@ async def start_download(request: Request):
         if not urls:
             raise HTTPException(status_code=400, detail="No URLs provided")
         
-        # Use cached song counts from the check phase
         total_songs = sum(download_counts.get(url, 1) for url in urls)
             
         if total_songs > config["max_free_downloads"]:
@@ -281,12 +285,20 @@ async def start_download(request: Request):
                     detail="Password required for more than 5 songs. DM me on Twitter @didntdrinkwater for the password!"
                 )
         
+        download_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         logging.info(f"Starting downloads for URLs: {urls}")
         
         for url in urls:
-            asyncio.create_task(download_url(url))
+            asyncio.create_task(download_url(url, download_id))
         
-        return {"message": "Downloads started"}
+        # Update global stats
+        stats_manager.update_stats(
+            new_downloads=len(urls),
+            new_songs=total_songs,
+            visitor_ip=request.client.host
+        )
+        
+        return {"message": "Downloads started", "download_id": download_id}
     except HTTPException as he:
         raise he
     except Exception as e:
@@ -298,9 +310,9 @@ async def get_status():
     return downloads
 
 @app.get("/api/stats")
-async def get_stats():
+async def get_stats(request: Request):
     try:
-        stats = get_download_stats()
+        stats = get_download_stats(request)
         return stats
     except Exception as e:
         logging.error(f"Error getting stats: {str(e)}")
@@ -309,6 +321,29 @@ async def get_stats():
 @app.get("/api/config")
 async def get_config():
     return {"max_free_downloads": config["max_free_downloads"]}
+
+@app.get("/api/download/{download_id}")
+async def get_download(download_id: str):
+    try:
+        # Create zip file from download directory
+        download_dir = Path(config["download_dir"]) / download_id
+        if not download_dir.exists():
+            raise HTTPException(status_code=404, detail="Download not found")
+            
+        zip_path = Path(config["download_dir"]) / f"{download_id}.zip"
+        if not zip_path.exists():
+            shutil.make_archive(str(zip_path.with_suffix('')), 'zip', download_dir)
+        
+        return FileResponse(
+            path=zip_path,
+            filename=f"music_download_{download_id}.zip",
+            media_type="application/zip"
+        )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logging.error(f"Error delivering download: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
