@@ -1,0 +1,63 @@
+2025-01-09 18:59:03,145 - DEBUG - Using selector: KqueueSelector
+2025-01-09 22:03:31,910 - DEBUG - Using selector: KqueueSelector
+2025-01-09 22:03:41,056 - INFO - Starting downloads for URLs: ['https://www.youtube.com/watch?v=zz1QKRwhNVg&list=RDzz1QKRwhN...']
+2025-01-09 22:03:41,057 - INFO - Starting download for: https://www.youtube.com/watch?v=zz1QKRwhNVg&list=RDzz1QKRwhN...
+2025-01-09 22:03:41,057 - DEBUG - Running command: yt-dlp https://www.youtube.com/watch?v=zz1QKRwhNVg&list=RDzz1QKRwhN... -f bestaudio/best --extract-audio --audio-format mp3 --audio-quality 0 --embed-thumbnail --add-metadata --prefer-ffmpeg -o /Users/sett/Downloads/MusicDownloader/%(title)s.%(ext)s
+2025-01-09 22:03:45,906 - DEBUG - Progress: 0.0%
+2025-01-09 22:03:49,350 - INFO - Successfully downloaded: https://www.youtube.com/watch?v=zz1QKRwhNVg&list=RDzz1QKRwhN...
+2025-01-09 22:06:38,067 - INFO - Starting downloads for URLs: ['https://www.youtube.com/watch?v=nMt2vJISBNU&list=RDEMEBQy63jjXW1pskRLslHQcw&start_radio=1&rv=MqsQI2Di2xY']
+2025-01-09 22:06:38,069 - INFO - Starting download for: https://www.youtube.com/watch?v=nMt2vJISBNU&list=RDEMEBQy63jjXW1pskRLslHQcw&start_radio=1&rv=MqsQI2Di2xY
+2025-01-09 22:06:38,069 - DEBUG - Running command: yt-dlp https://www.youtube.com/watch?v=nMt2vJISBNU&list=RDEMEBQy63jjXW1pskRLslHQcw&start_radio=1&rv=MqsQI2Di2xY -f bestaudio/best --extract-audio --audio-format mp3 --audio-quality 0 --embed-thumbnail --add-metadata --prefer-ffmpeg -o /Users/sett/Downloads/MusicDownloader/%(title)s.%(ext)s
+2025-01-09 22:06:42,559 - DEBUG - Progress: 0.0%
+2025-01-09 22:06:48,824 - DEBUG - Progress: 0.0%
+2025-01-09 22:06:53,833 - DEBUG - Progress: 0.0%
+2025-01-09 22:06:58,634 - DEBUG - Progress: 0.0%
+2025-01-09 22:07:04,087 - DEBUG - Progress: 0.0%
+2025-01-09 22:07:13,587 - DEBUG - Progress: 0.0%
+2025-01-09 22:07:19,148 - DEBUG - Progress: 0.0%
+2025-01-09 22:07:24,149 - DEBUG - Progress: 0.0%
+2025-01-09 22:07:30,393 - DEBUG - Progress: 0.0%
+2025-01-09 22:07:35,533 - DEBUG - Progress: 0.0%
+2025-01-09 22:07:41,022 - DEBUG - Progress: 0.0%
+2025-01-09 22:07:46,522 - DEBUG - Progress: 0.0%
+2025-01-09 22:07:52,798 - DEBUG - Progress: 0.0%
+2025-01-09 22:07:58,467 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:02,978 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:08,797 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:14,671 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:19,355 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:24,537 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:30,295 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:35,135 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:40,186 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:46,827 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:52,329 - DEBUG - Progress: 0.0%
+2025-01-09 22:08:57,729 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:04,014 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:09,281 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:13,882 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:19,233 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:24,012 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:29,386 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:33,787 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:38,965 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:48,205 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:53,896 - DEBUG - Progress: 0.0%
+2025-01-09 22:09:59,840 - DEBUG - Progress: 0.0%
+2025-01-09 22:10:05,628 - DEBUG - Progress: 0.0%
+2025-01-09 22:10:11,376 - DEBUG - Progress: 0.0%
+2025-01-09 22:10:15,719 - DEBUG - Progress: 0.1%
+2025-01-09 22:10:19,732 - DEBUG - Progress: 0.0%
+2025-01-09 22:10:24,601 - DEBUG - Progress: 0.0%
+2025-01-09 22:10:29,430 - DEBUG - Progress: 0.0%
+2025-01-09 22:10:34,130 - DEBUG - Progress: 0.0%
+2025-01-09 22:10:39,271 - DEBUG - Progress: 0.1%
+2025-01-09 22:10:44,210 - DEBUG - Progress: 0.0%
+2025-01-09 22:10:50,672 - DEBUG - Progress: 0.0%
+2025-01-09 22:10:55,930 - DEBUG - Progress: 0.0%
+2025-01-09 22:11:00,791 - DEBUG - Progress: 0.0%
+2025-01-09 22:11:05,170 - DEBUG - Progress: 0.0%
+2025-01-09 22:11:09,434 - DEBUG - Progress: 0.0%
+2025-01-09 22:11:14,363 - DEBUG - Progress: 0.0%
+2025-01-09 22:11:18,498 - DEBUG - Progress: 0.0%
+2025-01-09 22:11:21,716 - INFO - Successfully downloaded: https://www.youtube.com/watch?v=nMt2vJISBNU&list=RDEMEBQy63jjXW1pskRLslHQcw&start_radio=1&rv=MqsQI2Di2xY

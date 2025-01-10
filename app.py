@@ -22,9 +22,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,  # Set to DEBUG for more info
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('downloads.log'),
@@ -32,17 +31,14 @@ logging.basicConfig(
     ]
 )
 
-# Global state
 downloads = {}
 config = {
     "download_dir": str(Path.home() / "Downloads" / "MusicDownloader")
 }
 
-# Ensure download directory exists
 Path(config["download_dir"]).mkdir(parents=True, exist_ok=True)
 
 def get_download_stats():
-    """Get stats about downloads folder"""
     download_dir = Path(config["download_dir"])
     files = list(download_dir.glob("*.mp3"))
     
@@ -52,7 +48,6 @@ def get_download_stats():
         "recent_files": []
     }
     
-    # Get 10 most recent files
     recent_files = sorted(files, key=lambda x: x.stat().st_mtime, reverse=True)[:10]
     for file in recent_files:
         fstat = file.stat()
@@ -65,7 +60,6 @@ def get_download_stats():
     return stats
 
 async def download_url(url: str) -> None:
-    """Handle downloading a single URL with high quality settings."""
     try:
         if not url or not isinstance(url, str):
             raise ValueError("Invalid URL")
@@ -103,7 +97,7 @@ async def download_url(url: str) -> None:
             *command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=False  # Changed this
+            universal_newlines=False
         )
 
         while True:
@@ -114,7 +108,6 @@ async def download_url(url: str) -> None:
             try:
                 line = line.decode().strip()
                 
-                # Progress tracking
                 if "[download]" in line and "%" in line:
                     try:
                         progress = float(line.split("%")[0].strip().split()[-1])
@@ -123,7 +116,7 @@ async def download_url(url: str) -> None:
                     except:
                         pass
                 elif "Downloading" in line:
-                    downloads[url]["progress"] = 50  # Show some progress for Spotify
+                    downloads[url]["progress"] = 50
             except:
                 continue
 
@@ -153,6 +146,7 @@ async def download_url(url: str) -> None:
             "error": str(e),
             "progress": 0
         }
+
 @app.get("/", response_class=HTMLResponse)
 async def get_html():
     with open('index.html', 'r') as f:
@@ -169,7 +163,6 @@ async def start_download(request: Request):
         
         logging.info(f"Starting downloads for URLs: {urls}")
         
-        # Start downloads
         for url in urls:
             asyncio.create_task(download_url(url))
         
@@ -214,9 +207,9 @@ async def get_config():
 @app.post("/api/open_folder")
 async def open_folder():
     try:
-        if os.name == 'nt':  # Windows
+        if os.name == 'nt':
             os.startfile(config["download_dir"])
-        else:  # macOS and Linux
+        else:
             webbrowser.open('file://' + config["download_dir"])
         return {"message": "Opened downloads folder"}
     except Exception as e:
@@ -238,4 +231,4 @@ if __name__ == "__main__":
 ║ Press Ctrl+C to quit                   ║
 ╚════════════════════════════════════════╝
 """)
-    uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=port)
