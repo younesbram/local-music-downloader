@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response, Cookie
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -12,7 +12,8 @@ import json
 import shutil
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Set
+from typing import Dict, Optional
+from uuid import uuid4
 
 app = FastAPI()
 app.add_middleware(
@@ -32,43 +33,9 @@ logging.basicConfig(
     ]
 )
 
-class StatsManager:
-    def __init__(self, stats_file="/app/data/global_stats.json"):
-        self.stats_file = stats_file
-        Path(stats_file).parent.mkdir(parents=True, exist_ok=True)
-        self.ensure_file_exists()
-        
-    def ensure_file_exists(self):
-        try:
-            with open(self.stats_file, 'r') as f:
-                json.load(f)
-        except:
-            self.save_stats({
-                "total_downloads": 0,
-                "total_songs": 0,
-                "unique_visitors": []
-            })
-    
-    def load_stats(self):
-        with open(self.stats_file, 'r') as f:
-            return json.load(f)
-    
-    def save_stats(self, stats):
-        with open(self.stats_file, 'w') as f:
-            json.dump(stats, f)
-    
-    def update_stats(self, new_downloads=0, new_songs=0, visitor_ip=None):
-        stats = self.load_stats()
-        stats["total_downloads"] += new_downloads
-        stats["total_songs"] += new_songs
-        if visitor_ip and visitor_ip not in stats["unique_visitors"]:
-            stats["unique_visitors"].append(visitor_ip)
-        self.save_stats(stats)
-        return stats
-
-downloads: Dict[str, Dict] = {}
+# Global state with session support
+downloads: Dict[str, Dict[str, Dict]] = {}  # session_id -> url -> status
 download_counts: Dict[str, int] = {}
-stats_manager = StatsManager()
 
 config = {
     "download_dir": "/app/downloads",
@@ -76,6 +43,7 @@ config = {
     "max_free_downloads": 5
 }
 
+# Ensure download directory exists
 Path(config["download_dir"]).mkdir(parents=True, exist_ok=True)
 
 def verify_password(password: str) -> bool:
@@ -116,23 +84,26 @@ async def count_songs_in_url(url: str) -> int:
         download_counts[url] = 1
         return 1
 
-def get_download_stats(request: Request):
-    stats = stats_manager.load_stats()
+def get_download_stats(session_id: str):
     download_dir = Path(config["download_dir"])
     files = list(download_dir.glob("*.mp3"))
     
-    active_downloads = [d for d in downloads.values() if d["status"] == "downloading"]
+    # Only count active downloads for this session
+    active_downloads = len([d for d in downloads.get(session_id, {}).values() 
+                          if d["status"] == "downloading"])
     
     return {
         "total_files": len(files),
-        "total_size_mb": round(sum(f.stat().st_size for f in files if f.stat().st_size > 0) / (1024 * 1024), 2),
-        "active_downloads": len(active_downloads),
-        "global_downloads": stats["total_downloads"],
-        "unique_users": len(stats["unique_visitors"]),
-        "download_ready": any(d["status"] == "completed" for d in downloads.values())
+        "total_size_mb": round(sum(f.stat().st_size for f in files) / (1024 * 1024), 2),
+        "active_downloads": active_downloads,
+        "global_downloads": sum(len(session_downloads) for session_downloads in downloads.values()),
+        "session_downloads": len(downloads.get(session_id, {}))
     }
 
-async def download_url(url: str, download_id: str) -> None:
+async def download_url(url: str, download_id: str, session_id: str) -> None:
+    if session_id not in downloads:
+        downloads[session_id] = {}
+        
     try:
         if not url or not isinstance(url, str):
             raise ValueError("Invalid URL")
@@ -167,7 +138,7 @@ async def download_url(url: str, download_id: str) -> None:
             ]
 
         logging.debug(f"Running command: {' '.join(command)}")
-        downloads[url] = {
+        downloads[session_id][url] = {
             "status": "downloading",
             "progress": 0,
             "download_id": download_id,
@@ -191,18 +162,18 @@ async def download_url(url: str, download_id: str) -> None:
                 if "[download]" in line and "%" in line:
                     try:
                         progress = float(line.split("%")[0].strip().split()[-1])
-                        downloads[url]["progress"] = progress
+                        downloads[session_id][url]["progress"] = progress
                     except:
                         pass
                 elif "[download] Destination" in line or "Downloading" in line:
-                    downloads[url]["completed_songs"] += 1
+                    downloads[session_id][url]["completed_songs"] += 1
             except:
                 continue
 
         await process.wait()
         
         if process.returncode == 0:
-            downloads[url].update({
+            downloads[session_id][url].update({
                 "status": "completed",
                 "progress": 100,
                 "completed_songs": download_counts.get(url, 1)
@@ -211,7 +182,7 @@ async def download_url(url: str, download_id: str) -> None:
         else:
             error = await process.stderr.read()
             error_text = error.decode().strip() if error else "Download failed"
-            downloads[url].update({
+            downloads[session_id][url].update({
                 "status": "failed",
                 "error": error_text,
                 "progress": 0
@@ -220,11 +191,21 @@ async def download_url(url: str, download_id: str) -> None:
 
     except Exception as e:
         logging.error(f"Error downloading {url}: {str(e)}")
-        downloads[url].update({
+        downloads[session_id][url] = {
             "status": "failed",
             "error": str(e),
-            "progress": 0
-        })
+            "progress": 0,
+            "download_id": download_id,
+            "total_songs": 1,
+            "completed_songs": 0
+        }
+
+@app.get("/api/session")
+async def get_session(response: Response, session_id: Optional[str] = Cookie(None)):
+    if not session_id:
+        session_id = str(uuid4())
+        response.set_cookie(key="session_id", value=session_id)
+    return {"session_id": session_id}
 
 @app.get("/", response_class=HTMLResponse)
 async def get_html():
@@ -248,13 +229,12 @@ async def check_urls(request: Request):
             
         needs_password = total_songs > config["max_free_downloads"]
         
-        if needs_password:
-            if password:
-                if not verify_password(password):
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Invalid password. Please try again or DM @didntdrinkwater on Twitter for the password."
-                    )
+        if needs_password and password:
+            if not verify_password(password):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Invalid password. Please try again or DM @didntdrinkwater on Twitter for the password."
+                )
             
         return {
             "total_songs": total_songs,
@@ -267,7 +247,13 @@ async def check_urls(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/download")
-async def start_download(request: Request):
+async def start_download(
+    request: Request, 
+    session_id: Optional[str] = Cookie(None)
+):
+    if not session_id:
+        raise HTTPException(status_code=400, detail="No session ID")
+        
     try:
         data = await request.json()
         urls = data.get("urls", [])
@@ -289,14 +275,7 @@ async def start_download(request: Request):
         logging.info(f"Starting downloads for URLs: {urls}")
         
         for url in urls:
-            asyncio.create_task(download_url(url, download_id))
-        
-        # Update global stats
-        stats_manager.update_stats(
-            new_downloads=len(urls),
-            new_songs=total_songs,
-            visitor_ip=request.client.host
-        )
+            asyncio.create_task(download_url(url, download_id, session_id))
         
         return {"message": "Downloads started", "download_id": download_id}
     except HTTPException as he:
@@ -306,13 +285,17 @@ async def start_download(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/status")
-async def get_status():
-    return downloads
+async def get_status(session_id: Optional[str] = Cookie(None)):
+    if not session_id:
+        return {}
+    return downloads.get(session_id, {})
 
 @app.get("/api/stats")
-async def get_stats(request: Request):
+async def get_stats(session_id: Optional[str] = Cookie(None)):
     try:
-        stats = get_download_stats(request)
+        if not session_id:
+            return {}
+        stats = get_download_stats(session_id)
         return stats
     except Exception as e:
         logging.error(f"Error getting stats: {str(e)}")
@@ -325,7 +308,6 @@ async def get_config():
 @app.get("/api/download/{download_id}")
 async def get_download(download_id: str):
     try:
-        # Create zip file from download directory
         download_dir = Path(config["download_dir"]) / download_id
         if not download_dir.exists():
             raise HTTPException(status_code=404, detail="Download not found")
@@ -347,17 +329,4 @@ async def get_download(download_id: str):
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    print(f"""
-╔════════════════════════════════════════╗
-║     High Quality Music Downloader      ║
-║----------------------------------------║
-║ Server running at:                     ║
-║ http://localhost:{port}                  ║
-║                                        ║
-║ Downloads will be saved to:            ║
-║ {config["download_dir"]}
-║                                        ║
-║ Press Ctrl+C to quit                   ║
-╚════════════════════════════════════════╝
-""")
     uvicorn.run(app, host="0.0.0.0", port=port)

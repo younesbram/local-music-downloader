@@ -24,9 +24,11 @@
             const [isCounting, setIsCounting] = React.useState(false);
             const [totalSongs, setTotalSongs] = React.useState(0);
             const [checkedUrls, setCheckedUrls] = React.useState(false);
-            const [downloadId, setDownloadId] = React.useState(null);
 
             React.useEffect(() => {
+                // Initialize session
+                fetch('/api/session').then(res => res.json());
+                
                 const interval = setInterval(() => {
                     fetchStatus();
                     fetchStats();
@@ -84,6 +86,7 @@
                             urls: urlList,
                             password: password 
                         }),
+                        credentials: 'include'
                     });
                     
                     const data = await response.json();
@@ -133,15 +136,13 @@
                             urls: urlList,
                             password: password 
                         }),
+                        credentials: 'include'
                     });
 
                     if (!response.ok) {
                         const data = await response.json();
                         throw new Error(data.detail || 'Failed to start download');
                     }
-
-                    const data = await response.json();
-                    setDownloadId(data.download_id);
                     
                     setUrls('');
                     setPassword('');
@@ -154,14 +155,6 @@
                     setIsProcessing(false);
                 }
             };
-
-            const handleDownload = async () => {
-                if (!downloadId) return;
-                window.location.href = `/api/download/${downloadId}`;
-            };
-
-            const allDownloadsCompleted = downloads.length > 0 && 
-                downloads.every(d => d.status === 'completed');
 
             return (
                 <div className="min-h-screen py-12 px-4">
@@ -179,17 +172,17 @@
                         </div>
 
                         {stats && (
-                            <div className="grid grid-cols-2 gap-8 mb-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                                 <div className="p-6 bg-white rounded-lg shadow">
                                     <h3 className="text-lg font-semibold mb-4">Your Downloads</h3>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <p className="text-gray-600">Files</p>
-                                            <p className="text-2xl font-bold">{stats.total_files}</p>
+                                            <p className="text-gray-600">Active Downloads</p>
+                                            <p className="text-2xl font-bold">{stats.active_downloads}</p>
                                         </div>
                                         <div>
-                                            <p className="text-gray-600">Size</p>
-                                            <p className="text-2xl font-bold">{Math.round(stats.total_size_mb)} MB</p>
+                                            <p className="text-gray-600">Session Downloads</p>
+                                            <p className="text-2xl font-bold">{stats.session_downloads}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -201,8 +194,8 @@
                                             <p className="text-2xl font-bold">{stats.global_downloads}</p>
                                         </div>
                                         <div>
-                                            <p className="text-gray-600">Unique Users</p>
-                                            <p className="text-2xl font-bold">{stats.unique_users}</p>
+                                            <p className="text-gray-600">Total Size</p>
+                                            <p className="text-2xl font-bold">{Math.round(stats.total_size_mb)} MB</p>
                                         </div>
                                     </div>
                                 </div>
@@ -271,44 +264,64 @@
                         )}
 
                         {downloads && downloads.length > 0 && (
-                            <div className="mt-8 space-y-4">
-                                <h2 className="text-xl font-semibold">Active Downloads</h2>
-                                {downloads.map((download, index) => (
-                                    <div key={index} className="border rounded-lg p-4">
-                                        <div className="flex justify-between mb-2">
-                                            <span className="font-medium truncate">{download.url}</span>
-                                            <span>{download.progress.toFixed(1)}%</span>
-                                        </div>
-                                        <div className="w-full bg-gray-200 rounded-full h-2">
-                                            <div
-                                                className={"h-2 rounded-full transition-all duration-300 " + 
-                                                    (download.status === 'failed' ? 'bg-red-500' : 
-                                                    download.status === 'completed' ? 'bg-green-500' : 
-                                                    'bg-blue-500')
-                                                }
-                                                style={{width: `${download.progress}%`}}
-                                            />
-                                        </div>
-                                        {download.completed_songs !== undefined && download.total_songs > 1 && (
-                                            <div className="text-sm text-gray-600 mt-1">
-                                                Song {download.completed_songs} of {download.total_songs}
+                            <div className="mt-8">
+                                <h2 className="text-xl font-semibold mb-4">Your Downloads</h2>
+                                <div className="space-y-4">
+                                    {downloads.map((download, index) => (
+                                        <div key={index} className="bg-white border rounded-lg p-4 shadow-sm">
+                                            <div className="flex flex-col sm:flex-row justify-between mb-2">
+                                                <span className="font-medium truncate mb-1 sm:mb-0 flex-1">
+                                                    {download.url.substring(0, 60)}{download.url.length > 60 ? '...' : ''}
+                                                </span>
+                                                <span className="text-gray-600 whitespace-nowrap ml-2">
+                                                    {download.progress.toFixed(1)}%
+                                                </span>
                                             </div>
-                                        )}
-                                        {download.error && (
-                                            <p className="text-red-500 mt-2 text-sm">{download.error}</p>
-                                        )}
-                                    </div>
-                                ))}
+                                            <div className="w-full bg-gray-200 rounded-full h-2">
+                                                <div
+                                                    className={"h-2 rounded-full transition-all duration-300 " + 
+                                                        (download.status === 'failed' ? 'bg-red-500' : 
+                                                        download.status === 'completed' ? 'bg-green-500' : 
+                                                        'bg-blue-500')
+                                                    }
+                                                    style={{width: `${download.progress}%`}}
+                                                />
+                                            </div>
+                                            {download.completed_songs !== undefined && download.total_songs > 1 && (
+                                                <div className="text-sm text-gray-600 mt-2">
+                                                    Song {download.completed_songs} of {download.total_songs}
+                                                </div>
+                                            )}
+                                            {download.error && (
+                                                <p className="text-red-500 mt-2 text-sm">{download.error}</p>
+                                            )}
+                                            
+                                            {/* Download button appears when status is completed */}
+                                            {download.status === 'completed' && (
+                                                <button
+                                                    onClick={() => window.location.href = `/api/download/${download.download_id}`}
+                                                    className="mt-3 w-full py-2 px-4 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center justify-center gap-2"
+                                                >
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                    </svg>
+                                                    Download Now
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
 
-                                {allDownloadsCompleted && (
+                                {/* Download all button if multiple completed downloads */}
+                                {downloads.length > 1 && downloads.every(d => d.status === 'completed') && (
                                     <button
-                                        onClick={handleDownload}
-                                        className="w-full mt-4 py-3 px-4 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center justify-center gap-2"
+                                        onClick={() => window.location.href = `/api/download/${downloads[0].download_id}`}
+                                        className="mt-6 w-full py-3 px-4 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center justify-center gap-2 font-semibold"
                                     >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                         </svg>
-                                        Download ZIP File
+                                        Download All as ZIP
                                     </button>
                                 )}
                             </div>
