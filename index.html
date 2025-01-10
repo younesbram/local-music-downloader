@@ -14,13 +14,13 @@
     <script type="text/babel">
         function App() {
             const [urls, setUrls] = React.useState('');
+            const [password, setPassword] = React.useState('');
             const [downloads, setDownloads] = React.useState([]);
             const [stats, setStats] = React.useState(null);
             const [config, setConfig] = React.useState(null);
             const [error, setError] = React.useState(null);
             const [isProcessing, setIsProcessing] = React.useState(false);
-            const [showDirInput, setShowDirInput] = React.useState(false);
-            const [newDir, setNewDir] = React.useState('');
+            const [showPasswordInput, setShowPasswordInput] = React.useState(false);
 
             React.useEffect(() => {
                 const interval = setInterval(() => {
@@ -65,33 +65,6 @@
                 }
             };
 
-            const openFolder = async () => {
-                try {
-                    await fetch('/api/open_folder', { method: 'POST' });
-                } catch (err) {
-                    console.error('Error opening folder:', err);
-                }
-            };
-
-            const updateDownloadDir = async () => {
-                if (!newDir) return;
-                try {
-                    const response = await fetch('/api/config/download_dir', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ path: newDir })
-                    });
-
-                    if (response.ok) {
-                        setShowDirInput(false);
-                        setNewDir('');
-                        fetchConfig();
-                    }
-                } catch (err) {
-                    console.error('Error updating download directory:', err);
-                }
-            };
-
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 setError(null);
@@ -102,16 +75,29 @@
                         .map(url => url.trim())
                         .filter(Boolean);
 
+                    if (urlList.length > 5 && !password) {
+                        setShowPasswordInput(true);
+                        setIsProcessing(false);
+                        return;
+                    }
+
                     const response = await fetch('/api/download', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ urls: urlList }),
+                        body: JSON.stringify({ 
+                            urls: urlList,
+                            password: password 
+                        }),
                     });
 
                     if (!response.ok) {
-                        throw new Error('Failed to start download');
+                        const data = await response.json();
+                        throw new Error(data.detail || 'Failed to start download');
                     }
+                    
                     setUrls('');
+                    setPassword('');
+                    setShowPasswordInput(false);
                 } catch (err) {
                     setError(err.message);
                 } finally {
@@ -124,46 +110,15 @@
                     <div className="max-w-4xl mx-auto">
                         <div className="flex justify-between items-center mb-8">
                             <h1 className="text-3xl font-bold">Music Downloader</h1>
-                            {config && (
-                                <div className="flex items-center gap-4">
-                                    <button
-                                        onClick={openFolder}
-                                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center gap-2"
-                                    >
-                                        📂 Open Downloads
-                                    </button>
-                                    <button
-                                        onClick={() => setShowDirInput(!showDirInput)}
-                                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg"
-                                    >
-                                        Change Location
-                                    </button>
-                                </div>
-                            )}
+                            <a 
+                                href="https://x.com/didntdrinkwater" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-500 hover:text-blue-600"
+                            >
+                                Need the password? DM me on Twitter @didntdrinkwater
+                            </a>
                         </div>
-
-                        {showDirInput && config && (
-                            <div className="mb-4 p-4 bg-white rounded-lg shadow">
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        value={newDir}
-                                        onChange={(e) => setNewDir(e.target.value)}
-                                        placeholder="Enter new download directory path"
-                                        className="flex-1 p-2 border rounded"
-                                    />
-                                    <button
-                                        onClick={updateDownloadDir}
-                                        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                                    >
-                                        Save
-                                    </button>
-                                </div>
-                                <p className="text-sm text-gray-500 mt-2">
-                                    Current: {config && config.download_dir}
-                                </p>
-                            </div>
-                        )}
 
                         {stats && (
                             <div className="mb-8 p-6 bg-white rounded-lg shadow">
@@ -203,9 +158,32 @@
                                 className="w-full h-32 p-3 border rounded-lg"
                                 value={urls}
                                 onChange={(e) => setUrls(e.target.value)}
-                                placeholder="Enter URLs (one per line)&#10;Supports: YouTube, Spotify, SoundCloud"
+                                placeholder="Enter URLs (one per line)&#10;Supports: YouTube, Spotify, SoundCloud&#10;Note: Password required for more than 5 downloads"
                                 disabled={isProcessing}
                             />
+
+                            {showPasswordInput && (
+                                <div className="space-y-2">
+                                    <p className="text-sm text-gray-600">
+                                        Password required for more than 5 downloads.
+                                        <a 
+                                            href="https://x.com/didntdrinkwater" 
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="ml-1 text-blue-500 hover:text-blue-600"
+                                        >
+                                            DM me for the password
+                                        </a>
+                                    </p>
+                                    <input
+                                        type="password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        placeholder="Enter password"
+                                        className="w-full p-3 border rounded-lg"
+                                    />
+                                </div>
+                            )}
 
                             <button
                                 type="submit"

@@ -5,13 +5,11 @@ import uvicorn
 import asyncio
 import subprocess
 import os
-import json
-import socket
+import hashlib
+import hmac
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Dict
-import webbrowser
 
 app = FastAPI()
 app.add_middleware(
@@ -22,9 +20,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,  # Set to DEBUG for more info
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('downloads.log'),
@@ -32,17 +29,22 @@ logging.basicConfig(
     ]
 )
 
-# Global state
 downloads = {}
 config = {
-    "download_dir": str(Path.home() / "Downloads" / "MusicDownloader")
+    "download_dir": str(Path.home() / "Downloads" / "MusicDownloader"),
+    "password_hash": hashlib.sha256(os.getenv("APP_PASSWORD", "default").encode()).hexdigest(),
+    "max_free_downloads": 5
 }
 
-# Ensure download directory exists
 Path(config["download_dir"]).mkdir(parents=True, exist_ok=True)
 
+def verify_password(password: str) -> bool:
+    if not password:
+        return False
+    test_hash = hashlib.sha256(password.encode()).hexdigest()
+    return hmac.compare_digest(test_hash, config["password_hash"])
+
 def get_download_stats():
-    """Get stats about downloads folder"""
     download_dir = Path(config["download_dir"])
     files = list(download_dir.glob("*.mp3"))
     
@@ -52,7 +54,6 @@ def get_download_stats():
         "recent_files": []
     }
     
-    # Get 10 most recent files
     recent_files = sorted(files, key=lambda x: x.stat().st_mtime, reverse=True)[:10]
     for file in recent_files:
         fstat = file.stat()
@@ -65,7 +66,6 @@ def get_download_stats():
     return stats
 
 async def download_url(url: str) -> None:
-    """Handle downloading a single URL with high quality settings."""
     try:
         if not url or not isinstance(url, str):
             raise ValueError("Invalid URL")
@@ -103,7 +103,6 @@ async def download_url(url: str) -> None:
             *command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=False  # Changed this
         )
 
         while True:
@@ -113,17 +112,14 @@ async def download_url(url: str) -> None:
                 
             try:
                 line = line.decode().strip()
-                
-                # Progress tracking
                 if "[download]" in line and "%" in line:
                     try:
                         progress = float(line.split("%")[0].strip().split()[-1])
                         downloads[url]["progress"] = progress
-                        logging.debug(f"Progress: {progress}%")
                     except:
                         pass
                 elif "Downloading" in line:
-                    downloads[url]["progress"] = 50  # Show some progress for Spotify
+                    downloads[url]["progress"] = 50
             except:
                 continue
 
@@ -134,11 +130,7 @@ async def download_url(url: str) -> None:
             logging.info(f"Successfully downloaded: {url}")
         else:
             error = await process.stderr.read()
-            try:
-                error_text = error.decode().strip()
-            except:
-                error_text = "Download failed"
-                
+            error_text = error.decode().strip() if error else "Download failed"
             downloads[url] = {
                 "status": "failed",
                 "error": error_text,
@@ -153,6 +145,7 @@ async def download_url(url: str) -> None:
             "error": str(e),
             "progress": 0
         }
+
 @app.get("/", response_class=HTMLResponse)
 async def get_html():
     with open('index.html', 'r') as f:
@@ -163,17 +156,26 @@ async def start_download(request: Request):
     try:
         data = await request.json()
         urls = data.get("urls", [])
+        password = data.get("password", "")
         
         if not urls:
             raise HTTPException(status_code=400, detail="No URLs provided")
+            
+        if len(urls) > config["max_free_downloads"]:
+            if not verify_password(password):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Password required for more than 5 downloads. DM me on Twitter @didntdrinkwater for the password!"
+                )
         
         logging.info(f"Starting downloads for URLs: {urls}")
         
-        # Start downloads
         for url in urls:
             asyncio.create_task(download_url(url))
         
         return {"message": "Downloads started"}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logging.error(f"Error starting downloads: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -211,31 +213,6 @@ async def set_download_dir(request: Request):
 async def get_config():
     return config
 
-@app.post("/api/open_folder")
-async def open_folder():
-    try:
-        if os.name == 'nt':  # Windows
-            os.startfile(config["download_dir"])
-        else:  # macOS and Linux
-            webbrowser.open('file://' + config["download_dir"])
-        return {"message": "Opened downloads folder"}
-    except Exception as e:
-        logging.error(f"Error opening folder: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 if __name__ == "__main__":
-    port = 8000
-    print(f"""
-╔════════════════════════════════════════╗
-║     High Quality Music Downloader      ║
-║----------------------------------------║
-║ Server running at:                     ║
-║ http://localhost:{port}                  ║
-║                                        ║
-║ Downloads will be saved to:            ║
-║ {config["download_dir"]}
-║                                        ║
-║ Press Ctrl+C to quit                   ║
-╚════════════════════════════════════════╝
-""")
-    uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
