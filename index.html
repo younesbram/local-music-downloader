@@ -23,6 +23,7 @@
             const [showPasswordInput, setShowPasswordInput] = React.useState(false);
             const [isCounting, setIsCounting] = React.useState(false);
             const [totalSongs, setTotalSongs] = React.useState(0);
+            const [checkedUrls, setCheckedUrls] = React.useState(false);
 
             React.useEffect(() => {
                 const interval = setInterval(() => {
@@ -67,10 +68,44 @@
                 }
             };
 
+            const checkUrls = async () => {
+                setIsCounting(true);
+                setError(null);
+                try {
+                    const urlList = urls.split('\n')
+                        .map(url => url.trim())
+                        .filter(Boolean);
+
+                    const response = await fetch('/api/check-urls', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            urls: urlList,
+                            password: password 
+                        }),
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.detail || 'Failed to check URLs');
+                    }
+                    
+                    setTotalSongs(data.total_songs);
+                    setShowPasswordInput(data.needs_password);
+                    setCheckedUrls(true);
+                    return data;
+                } catch (err) {
+                    setError(err.message);
+                    return null;
+                } finally {
+                    setIsCounting(false);
+                }
+            };
+
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 setError(null);
-                setIsProcessing(true);
 
                 try {
                     const urlList = urls.split('\n')
@@ -81,27 +116,15 @@
                         throw new Error('Please enter at least one URL');
                     }
 
-                    setIsCounting(true);
-                    const checkResponse = await fetch('/api/check-urls', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ urls: urlList }),
-                    });
-                    
-                    if (!checkResponse.ok) {
-                        throw new Error('Failed to check URLs');
-                    }
-                    
-                    const checkData = await checkResponse.json();
-                    setTotalSongs(checkData.total_songs);
-                    
-                    if (checkData.needs_password && !password) {
-                        setShowPasswordInput(true);
-                        setIsProcessing(false);
-                        setIsCounting(false);
-                        return;
+                    if (!checkedUrls) {
+                        const checkResult = await checkUrls();
+                        if (!checkResult) return;
+                        if (checkResult.needs_password && !password) {
+                            return;
+                        }
                     }
 
+                    setIsProcessing(true);
                     const response = await fetch('/api/download', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -120,12 +143,19 @@
                     setPassword('');
                     setShowPasswordInput(false);
                     setTotalSongs(0);
+                    setCheckedUrls(false);
                 } catch (err) {
                     setError(err.message);
                 } finally {
                     setIsProcessing(false);
-                    setIsCounting(false);
                 }
+            };
+
+            const formatSpeed = (mbps) => {
+                if (mbps >= 1024) {
+                    return `${(mbps / 1024).toFixed(1)} GB/s`;
+                }
+                return `${mbps.toFixed(1)} MB/s`;
             };
 
             return (
@@ -146,7 +176,7 @@
                         {stats && (
                             <div className="mb-8 p-6 bg-white rounded-lg shadow">
                                 <h2 className="text-xl font-semibold mb-4">Download Stats</h2>
-                                <div className="grid grid-cols-2 gap-4 mb-6">
+                                <div className="grid grid-cols-3 gap-4 mb-6">
                                     <div>
                                         <p className="text-gray-600">Total Files</p>
                                         <p className="text-2xl font-bold">{stats.total_files}</p>
@@ -154,6 +184,10 @@
                                     <div>
                                         <p className="text-gray-600">Total Size</p>
                                         <p className="text-2xl font-bold">{Math.round(stats.total_size_mb)} MB</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-gray-600">Active Downloads</p>
+                                        <p className="text-2xl font-bold">{stats.active_downloads}</p>
                                     </div>
                                 </div>
                                 
@@ -180,7 +214,10 @@
                             <textarea
                                 className="w-full h-32 p-3 border rounded-lg"
                                 value={urls}
-                                onChange={(e) => setUrls(e.target.value)}
+                                onChange={(e) => {
+                                    setUrls(e.target.value);
+                                    setCheckedUrls(false);
+                                }}
                                 placeholder="Enter URLs (one per line)&#10;Supports: YouTube, Spotify, SoundCloud&#10;Note: Password required for more than 5 songs"
                                 disabled={isProcessing || isCounting}
                             />
@@ -188,6 +225,11 @@
                             {totalSongs > 0 && (
                                 <div className="text-sm text-gray-600">
                                     Total songs to download: {totalSongs}
+                                    {config && totalSongs > config.max_free_downloads && (
+                                        <span className="ml-2 text-yellow-600">
+                                            (Password required for {totalSongs} songs)
+                                        </span>
+                                    )}
                                 </div>
                             )}
 
@@ -236,7 +278,14 @@
                                     <div key={index} className="border rounded-lg p-4">
                                         <div className="flex justify-between mb-2">
                                             <span className="font-medium truncate">{download.url}</span>
-                                            <span>{download.progress}%</span>
+                                            <div className="text-right">
+                                                <span>{download.progress.toFixed(1)}%</span>
+                                                {download.speed > 0 && (
+                                                    <span className="ml-2 text-gray-600">
+                                                        ({formatSpeed(download.speed)})
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                         <div className="w-full bg-gray-200 rounded-full h-2">
                                             <div
@@ -245,9 +294,14 @@
                                                     download.status === 'completed' ? 'bg-green-500' : 
                                                     'bg-blue-500')
                                                 }
-                                                style={{width: download.progress + '%'}}
+                                                style={{width: `${download.progress}%`}}
                                             />
                                         </div>
+                                        {download.completed_songs !== undefined && download.total_songs > 1 && (
+                                            <div className="text-sm text-gray-600 mt-1">
+                                                Song {download.completed_songs} of {download.total_songs}
+                                            </div>
+                                        )}
                                         {download.error && (
                                             <p className="text-red-500 mt-2 text-sm">{download.error}</p>
                                         )}
